@@ -16,6 +16,17 @@ import type { RawLimit, ResetGrants } from '../types'
 // The endpoint returns `cedar_ember` (the one-off rate limit resets) as null unless asked for it.
 export const PLAN_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage?cedar_ember=1'
 
+/**
+ * Anthropic grants resets by client surface: a request it does not recognise as Claude Code comes back
+ * `eligible: false, ineligible_reason: "surface"` with no grants. This mod runs inside Claude Code and
+ * asks on its behalf, so it names the same client in the format Claude Code itself uses, with the
+ * version of the engine it is running on. Undefined when that version is not a release number.
+ */
+export function planUserAgent(engineVersion: string): string | undefined {
+  const release = /^\d+\.\d+\.\d+/.exec(engineVersion)?.[0]
+  return release ? `claude-cli/${release} (external, cli)` : undefined
+}
+
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 const obj = (v: unknown): Record<string, unknown> | null => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null)
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v : undefined)
@@ -57,22 +68,24 @@ function extraUsage(value: unknown): RawLimit | null {
   return { kind: 'extra_usage', percentUsed: (used / cap) * 100, usedUsd: used / 100, limitUsd: cap / 100 }
 }
 
-/** The reset grants still usable: each reset left counts once, and carries the deadline it must be used by. */
+/**
+ * The reset grants still usable: each reset left counts once, and carries the deadline it must be used
+ * by. Undefined unless the account is eligible: an ineligible reply (no block, or the API not
+ * recognising the client) says nothing about how many resets there are, so none is claimed.
+ */
 function resetGrants(value: unknown, now: number): ResetGrants | undefined {
   const g = obj(value)
-  if (!g) return undefined
+  if (!g || g.eligible !== true) return undefined
   const expiries: string[] = []
   let count = 0
-  if (g.eligible === true && Array.isArray(g.grants)) {
-    for (const grant of g.grants) {
-      const item = obj(grant)
-      if (!item || !num(item.resets_left) || item.resets_left < 1) continue
-      const endsAt = str(item.ends_at)
-      if (endsAt && Date.parse(endsAt) <= now) continue
-      const n = Math.floor(item.resets_left)
-      count += n
-      if (endsAt) expiries.push(...Array<string>(n).fill(endsAt))
-    }
+  for (const grant of Array.isArray(g.grants) ? g.grants : []) {
+    const item = obj(grant)
+    if (!item || !num(item.resets_left) || item.resets_left < 1) continue
+    const endsAt = str(item.ends_at)
+    if (endsAt && Date.parse(endsAt) <= now) continue
+    const n = Math.floor(item.resets_left)
+    count += n
+    if (endsAt) expiries.push(...Array<string>(n).fill(endsAt))
   }
   return { count, expiries: expiries.sort() }
 }

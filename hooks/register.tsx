@@ -18,7 +18,7 @@ import { bandTiers, pickLayout } from './band-model'
 import type { BandSnapshot } from './band-model'
 import { formatDuration } from './format'
 import { mergeLimits, resetSignature } from './limits'
-import { PLAN_USAGE_URL, parsePlanUsage } from './plan-usage'
+import { PLAN_USAGE_URL, parsePlanUsage, planUserAgent } from './plan-usage'
 import { SCRIPT_TIMEOUT_MS, parseSummary, scriptPath, summaryFile } from './spend-cache'
 import { summaryText } from './summary-text'
 import { bandSvg, bandWidth } from './svg-band'
@@ -130,7 +130,9 @@ async function fetchPlanLimits($: EngineInterface) {
   try {
     const auth = await $.session.authorize()
     if (!auth || auth.kind !== 'bearer') return note('no signed-in session')
-    const res = await $.http.fetch(PLAN_USAGE_URL, { auth: auth.handle, headers: { 'anthropic-beta': 'oauth-2025-04-20', accept: 'application/json' } })
+    const userAgent = planUserAgent((await $.session.version()).version)
+    const headers = { 'anthropic-beta': 'oauth-2025-04-20', accept: 'application/json', ...(userAgent ? { 'user-agent': userAgent } : {}) }
+    const res = await $.http.fetch(PLAN_USAGE_URL, { auth: auth.handle, headers })
     if (!res.ok) return note(`http ${res.status}`)
     {
       const next = res.text
