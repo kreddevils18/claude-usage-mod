@@ -1,6 +1,6 @@
 {
   "name": "usage-mod",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Your Claude Code usage as colored chips above the prompt: 5h and weekly limits (% left), session cost and spend history. /usage-mod opens the full view.",
   "author": {
     "name": "Kien Hoang Trung",

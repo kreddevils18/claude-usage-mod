@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
 - Fix: the terminal could show no Fable, Extra or Usage resets while the desktop app showed them. Each session asked the plan usage API for itself, at start and every few minutes, and with several sessions open the API answered 429 (too many requests); a session refused that way had nothing to draw. Every session now shares the last good reply through `~/.claude/claude-usage-mod/plan-cache.json`: a reply another session got within the refresh interval is used without asking, a refused request falls back to the shared reply (drawn pale once it is two intervals old), and after a 429 no session asks again before its Retry-After time. `/usage-mod debug` says which of these happened.
 - The plan usage API is asked far less often, so the account stays clear of its rate limit:
