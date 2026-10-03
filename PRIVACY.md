@@ -4,7 +4,7 @@ What the claude-usage-mod mod for Claude Code does with data. Last changed on 3 
 
 ## One network request, and it is optional
 
-The mod sends no analytics and runs no server. Its single network request asks Anthropic's plan usage API (`https://api.anthropic.com/api/oauth/usage`, the call Claude Code's own `/usage` makes) for your plan's limit windows, so it can show the Fable and extra-usage limits. It runs when a session starts and again every few minutes.
+The mod sends no analytics and runs no server. Its single network request asks Anthropic's plan usage API (`https://api.anthropic.com/api/oauth/usage?cedar_ember=1`, the call Claude Code's own `/usage` makes) for your plan's limit windows, so it can show the Fable, extra-usage and rate limit resets rows. It runs when a session starts and again every few minutes.
 
 - The request has no body and no query. It carries your sign-in only through Claude Code's credential handle: the engine attaches the credential and only to a first-party host, so **the mod never sees your token**.
 - What comes back is percentages and reset times for each window, the extra-usage dollars and cap, and the count and deadlines of your rate limit resets. They are held in memory and the plugin store, nothing else.
