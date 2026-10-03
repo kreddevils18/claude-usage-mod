@@ -1,0 +1,51 @@
+name: Bug report
+description: Something looks wrong or is missing
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Claude Code version and OS
+      description: Output of `claude --version`, and your OS.
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where it runs
+      options:
+        - Terminal
+        - Desktop app (Code tab)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: width
+    attributes:
+      label: Width
+      description: Terminal columns, or roughly how wide the window is.
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what you saw
+      description: A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: text
+    attributes:
+      label: Output of `/usage-mod text`
+      description: Add `/usage-mod debug` if a Fable or Extra chip is missing (it lists field names, no values).
+      render: text
+  - type: textarea
+    id: spend
+    attributes:
+      label: For a wrong spend figure
+      description: The output of `node scripts/aggregate-usage.mjs --out-dir /tmp/usage-check` and the figure you compared it with. Remove anything private first.
+      render: text
+  - type: textarea
+    id: debug
+    attributes:
+      label: Debug line
+      description: "The `usage-mod: ...` line from `claude --debug`, if a hook failed."
+      render: text
