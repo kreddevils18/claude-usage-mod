@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Fix: the terminal could show no Fable, Extra or Usage resets while the desktop app showed them. Each session asked the plan usage API for itself, at start and every few minutes, and with several sessions open the API answered 429 (too many requests); a session refused that way had nothing to draw. Every session now shares the last good reply through `~/.claude/claude-usage-mod/plan-cache.json`: a reply another session got within the refresh interval is used without asking, a refused request falls back to the shared reply (drawn pale once it is two intervals old), and after a 429 no session asks again before its Retry-After time. `/usage-mod debug` says which of these happened.
+- The plan usage API is asked far less often, so the account stays clear of its rate limit:
+  - every 15 minutes instead of every 5, with its own *Plan limits refresh minutes* setting (5 at the least). The 5h and 7d windows still come from Claude Code with every response, at no request;
+  - sessions opened together ask once: a session about to ask says so in the shared file, and the others wait for its reply for up to 30 seconds;
+  - a failure that is not a 429 makes every session wait a minute before asking again;
+  - a session with no turn since its last request waits until the shared reply is 30 minutes old;
+  - in one session, a second caller (the refresh and debug commands, the timer) waits for the request in flight instead of sending another.
+
 ## 0.1.2
 
 - The plan usage request now names Claude Code as its client (`claude-cli/<engine version> (external, cli)`). Anthropic grants rate limit resets by client, and answered a request it did not recognise with `eligible: false`, so the Usage resets row could never show the real count.

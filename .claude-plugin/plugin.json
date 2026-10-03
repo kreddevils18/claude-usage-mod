@@ -41,6 +41,12 @@
       "description": "Add a Today spend chip to the band on wide screens",
       "default": true
     },
+    "planRefreshMinutes": {
+      "type": "number",
+      "title": "Plan limits refresh minutes",
+      "description": "How often Anthropic's plan usage API is asked for Fable, extra usage and resets (5 at the least). Every open session shares one reply, and a session with no turn waits up to 30 minutes.",
+      "default": 15
+    },
     "planLimits": {
       "type": "boolean",
       "title": "Plan limits from Anthropic",

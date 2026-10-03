@@ -6,6 +6,7 @@ import type { On, RenderPropsOf, SessionUsage } from 'claude-code'
 import { bandTiers, packRows, pickLayout } from '../hooks/band-model'
 import { formatDuration, formatTokens, formatUsd, miniBar, pacText, sparkline, untilReset } from '../hooks/format'
 import { mergeLimits, resetSignature, severity, toLimits } from '../hooks/limits'
+import { CLAIM_MS, IDLE_MS, holdReason, parsePlanCache, retryAtFrom } from '../hooks/plan-cache'
 import { parsePlanUsage, planUserAgent } from '../hooks/plan-usage'
 import { parseSummary } from '../hooks/spend-cache'
 import { paneModel } from '../hooks/pane-model'
@@ -132,11 +133,14 @@ describe('spend summary', () => {
   })
 })
 
+const PLAN_CACHE = '/home/test/.claude/claude-usage-mod/plan-cache.json'
+const TURN = { answer: '', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer', usage: { model: 'm', input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } as const
+
 // What the engine answers beneath the mod. `process` is the script's outcome: a summary, or null
 // for a session where $.process is unavailable.
 function engine(
   on: On,
-  state: { usage: SessionUsage; process: SpendSummary | null; file: SpendSummary | null; plan?: string | { status: number; text: string }; fetches?: { n: number }; urls?: string[]; headers?: Record<string, string>[]; version?: string; written?: string[] },
+  state: { usage: SessionUsage; process: SpendSummary | null; file: SpendSummary | null; plan?: string | { status: number; text: string }; fetches?: { n: number }; urls?: string[]; headers?: Record<string, string>[]; version?: string; written?: string[]; planCache?: { text?: string; writes?: string[] }; retryAfter?: string },
   store: Record<string, unknown> = {},
 ) {
   const clock = mock.clock(on, { now: NOW })
@@ -156,13 +160,23 @@ function engine(
     state.urls?.push(e.url)
     state.headers?.push(e.init?.headers ?? {})
     const plan = typeof state.plan === 'string' ? { status: 200, text: state.plan } : (state.plan ?? { status: 404, text: '' })
-    return { value: { status: plan.status, ok: plan.status >= 200 && plan.status < 300, headers: {}, text: plan.text } }
+    const headers: Record<string, string> = state.retryAfter ? { 'retry-after': state.retryAfter } : {}
+    return { value: { status: plan.status, ok: plan.status >= 200 && plan.status < 300, headers, text: plan.text } }
   })
+  // The shared plan reply is a file of its own: kept in `planCache` so a test can seed or read it.
   on('fs.write', (_$, e) => {
     if (state.written) state.written.push(e.path)
+    if (e.path === PLAN_CACHE && state.planCache) {
+      state.planCache.text = e.text
+      state.planCache.writes?.push(e.text)
+    }
     return { value: undefined }
   })
-  on('fs.read', () => {
+  on('fs.read', (_$, e) => {
+    if (e.path === PLAN_CACHE) {
+      if (state.planCache?.text === undefined) throw new Error('ENOENT')
+      return { value: state.planCache.text }
+    }
     if (!state.file) throw new Error('ENOENT')
     return { value: JSON.stringify(state.file) }
   })
@@ -807,7 +821,7 @@ describe('plan usage in the mod', () => {
     expect(text).toContain('extra_usage')
     expect(text).toContain('cedar_ember')
     expect(text).toContain('plan-usage.json')
-    expect(written).toEqual(['/home/test/.claude/claude-usage-mod/plan-usage.json'])
+    expect(written.filter(f => f !== PLAN_CACHE)).toEqual(['/home/test/.claude/claude-usage-mod/plan-usage.json'])
   })
 })
 
@@ -850,7 +864,150 @@ describe('debug always asks again', () => {
     await usageText($, 'debug')
     await usageText($, 'debug')
     expect(fetches.n).toBe(3) // the start-up fetch, then one per debug
-    expect(written).toHaveLength(2)
+    expect(written.filter(f => f !== PLAN_CACHE)).toHaveLength(2)
+  })
+})
+
+describe('one plan reply shared by every session', () => {
+  // The endpoint answers 429 when every session asks for itself; the terminal then had no Fable,
+  // Extra or resets while the desktop, which had asked first, still drew them.
+  test('a good reply is written for the other sessions', async ($, on) => {
+    const planCache: { text?: string } = {}
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: PLAN, planCache })
+    await start($, clock)
+    expect(parsePlanCache(planCache.text ?? '')).toEqual({ at: NOW, text: PLAN })
+  })
+
+  test('a reply another session got within the interval is used without asking', async ($, on) => {
+    const fetches = { n: 0 }
+    const planCache = { text: JSON.stringify({ at: NOW - 60_000, text: PLAN }) }
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: { status: 500, text: '' }, fetches, planCache })
+    await start($, clock)
+    expect(fetches.n).toBe(0)
+    const text = (await usageText($)).text
+    expect(text).toContain('Fable')
+    expect(text).toContain('Extra')
+  })
+
+  test('a 429 falls back to the shared reply, and no session asks again before Retry-After', async ($, on) => {
+    const fetches = { n: 0 }
+    const planCache = { text: JSON.stringify({ at: NOW - 16 * 60_000, text: PLAN }) }
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: { status: 429, text: '' }, retryAfter: '120', fetches, planCache })
+    await start($, clock)
+    expect(fetches.n).toBe(1)
+    expect((await usageText($)).text).toContain('Fable')
+    expect(parsePlanCache(planCache.text)?.retryAt).toBe(NOW + 120_000)
+    // Even debug, which always asks, waits out the rate limit.
+    expect((await usageText($, 'debug')).text).toContain('the last request was refused, asking again in 2m')
+    expect(fetches.n).toBe(1)
+  })
+
+  test('with nothing shared a 429 still says why', async ($, on) => {
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: { status: 429, text: '' }, planCache: {} })
+    await start($, clock)
+    expect((await usageText($)).text).not.toContain('Fable')
+  })
+
+  test('Retry-After is read as seconds or a date; without it the wait is one interval', () => {
+    expect(retryAtFrom({ 'retry-after': '30' }, NOW, 300_000)).toBe(NOW + 30_000)
+    expect(retryAtFrom({ 'retry-after': new Date(NOW + 90_000).toUTCString() }, NOW, 300_000)).toBe(NOW + 90_000)
+    expect(retryAtFrom({ 'retry-after': 'soon' }, NOW, 300_000)).toBe(NOW + 300_000)
+    expect(retryAtFrom({}, NOW, 300_000)).toBe(NOW + 300_000)
+    expect(parsePlanCache('not json')).toBeNull()
+  })
+
+  test('when a session holds back from asking', () => {
+    const active = { intervalMs: 15 * 60_000, isActive: true }
+    const idle = { ...active, isActive: false }
+    const reply = (ageMs: number) => ({ at: NOW - ageMs, text: '{}' })
+    expect(holdReason(null, NOW, active)).toBeUndefined()
+    expect(holdReason(reply(60_000), NOW, active)).toBe('recent')
+    expect(holdReason(reply(15 * 60_000), NOW, active)).toBeUndefined()
+    // A session with no turn since it asked waits for the idle interval instead.
+    expect(holdReason(reply(15 * 60_000), NOW, idle)).toBe('idle')
+    expect(holdReason(reply(IDLE_MS), NOW, idle)).toBeUndefined()
+    // Another session's claim holds the others back for a while, not for ever.
+    expect(holdReason({ ...reply(IDLE_MS), askingAt: NOW - 1000 }, NOW, active)).toBe('another session is asking')
+    expect(holdReason({ ...reply(IDLE_MS), askingAt: NOW - CLAIM_MS }, NOW, active)).toBeUndefined()
+    // The commands skip a recent reply and a claim, but never a refusal's wait.
+    expect(holdReason({ ...reply(60_000), askingAt: NOW - 1000 }, NOW, { ...active, force: true })).toBeUndefined()
+    expect(holdReason({ retryAt: NOW + 1 }, NOW, { ...active, force: true })).toBe('waiting')
+  })
+
+  test('sessions opened together ask once: the others wait for the claimed request', async ($, on) => {
+    const fetches = { n: 0 }
+    const planCache = { text: JSON.stringify({ at: NOW - IDLE_MS, text: PLAN, askingAt: NOW - 5_000 }) }
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: PLAN, fetches, planCache })
+    await start($, clock)
+    expect(fetches.n).toBe(0)
+    expect((await usageText($)).text).toContain('Fable')
+  })
+
+  test('a claim is written before asking and cleared by the reply', async ($, on) => {
+    const planCache: { text?: string; writes: string[] } = { writes: [] }
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: PLAN, planCache })
+    await start($, clock)
+    expect(parsePlanCache(planCache.writes[0] ?? '')).toEqual({ askingAt: NOW })
+    expect(parsePlanCache(planCache.text ?? '')).toEqual({ at: NOW, text: PLAN })
+  })
+
+  test('any other failure makes every session wait a minute, keeping the shared reply', async ($, on) => {
+    const fetches = { n: 0 }
+    const planCache = { text: JSON.stringify({ at: NOW - IDLE_MS, text: PLAN }) }
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: { status: 500, text: '' }, fetches, planCache })
+    await start($, clock)
+    expect(fetches.n).toBe(1)
+    expect(parsePlanCache(planCache.text)).toEqual({ at: NOW - IDLE_MS, text: PLAN, retryAt: NOW + 60_000 })
+    expect((await usageText($, 'debug')).text).toContain('asking again in 1m')
+    expect(fetches.n).toBe(1)
+  })
+
+  test('two callers in one session share the request in flight', async ($, on) => {
+    const fetches = { n: 0 }
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: PLAN, fetches })
+    await start($, clock)
+    // Both commands force a request; without the shared one in flight there would be two.
+    await Promise.all([usageText($, 'debug'), usageText($, 'debug')])
+    expect(fetches.n).toBe(2) // the start-up request, then one for both commands
+  })
+
+  test('the plan is asked every 15 minutes, not with the 5-minute spend refresh', async ($, on) => {
+    const fetches = { n: 0 }
+    const planCache: { text?: string } = {}
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: PLAN, fetches, planCache })
+    on('turn.complete', () => ({ text: '' }))
+    await start($, clock)
+    expect(fetches.n).toBe(1)
+    await $.turn.complete(TURN)
+    await clock.advance(10 * 60_000)
+    expect(fetches.n).toBe(1)
+    await clock.advance(5 * 60_000)
+    expect(fetches.n).toBe(2)
+  })
+
+  test('a session with no turn asks only once the reply is 30 minutes old', async ($, on) => {
+    const fetches = { n: 0 }
+    const planCache: { text?: string } = {}
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: PLAN, fetches, planCache })
+    await start($, clock)
+    expect(fetches.n).toBe(1)
+    await clock.advance(15 * 60_000)
+    expect(fetches.n).toBe(1) // idle: the 15-minute tick holds back
+    expect((await usageText($, 'debug')).text).toContain('ok') // the command still asks
+    expect(fetches.n).toBe(2)
+  })
+
+  test('the plan interval setting is never under 5 minutes', { options: { planRefreshMinutes: 1 } }, async ($, on) => {
+    const fetches = { n: 0 }
+    const planCache: { text?: string } = {}
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: PLAN, fetches, planCache })
+    on('turn.complete', () => ({ text: '' }))
+    await start($, clock)
+    await $.turn.complete(TURN)
+    await clock.advance(4 * 60_000)
+    expect(fetches.n).toBe(1)
+    await clock.advance(60_000)
+    expect(fetches.n).toBe(2)
   })
 })
 
