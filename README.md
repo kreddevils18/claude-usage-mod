@@ -102,10 +102,6 @@ A mod is code that runs inside Claude Code with your permissions, written by its
 - **No Fable or Extra chip.** The pane's rows say **No data** when your plan does not report them: Extra needs extra usage switched on with a monthly cap. Run `/usage-mod debug` to see whether the plan call worked and which fields it returned. The endpoint is not a documented API, so it can change; when it fails the band falls back to the two windows Claude Code reports.
 - **A figure disagrees with the plan page.** Limits and session cost come straight from Claude Code. The spend figures are the list-price estimate described above.
 
-## Related
-
-[usage-weather](https://github.com/AndersonDavi/claude-mods/tree/main/usage-weather) draws a forecast of your context, cost, cache and plan limits above the prompt. This mod takes a different line: chips with a color per metric, and spend history from your transcripts.
-
 ## Contributing
 
 Pull requests are welcome, above all pricing updates. See [CONTRIBUTING.md](CONTRIBUTING.md).
