@@ -1,0 +1,11 @@
+.claude-plugin/types/
+node_modules/
+tsconfig.json
+.DS_Store
+# Local aggregation output when testing with --out-dir
+/tmp/
+*.tmp
+
+# Internal planning, not part of the published repo
+/plans/
+/docs/implementation-plan.md
