@@ -1,13 +1,13 @@
 # Privacy
 
-What the claude-usage-mod mod for Claude Code does with data. Last changed on 3 October 2026 (added the plan usage request).
+What the claude-usage-mod mod for Claude Code does with data. Last changed on 3 October 2026 (the plan usage reply is shared between sessions on disk).
 
 ## One network request, and it is optional
 
-The mod sends no analytics and runs no server. Its single network request asks Anthropic's plan usage API (`https://api.anthropic.com/api/oauth/usage?cedar_ember=1`, the call Claude Code's own `/usage` makes) for your plan's limit windows, so it can show the Fable, extra-usage and rate limit resets rows. It runs when a session starts and again every few minutes.
+The mod sends no analytics and runs no server. Its single network request asks Anthropic's plan usage API (`https://api.anthropic.com/api/oauth/usage?cedar_ember=1`, the call Claude Code's own `/usage` makes) for your plan's limit windows, so it can show the Fable, extra-usage and rate limit resets rows. It runs when a session starts and then every 15 minutes (a setting, 5 at the least), and the sessions take turns: one asks and the others use the reply it saved, a session with no turn since its last request waits until that reply is 30 minutes old, and after a "too many requests" answer every session waits as long as Anthropic asks.
 
 - The request has no body and no query. It carries your sign-in only through Claude Code's credential handle: the engine attaches the credential and only to a first-party host, so **the mod never sees your token**.
-- What comes back is percentages and reset times for each window, the extra-usage dollars and cap, and the count and deadlines of your rate limit resets. They are held in memory and the plugin store, nothing else.
+- What comes back is percentages and reset times for each window, the extra-usage dollars and cap, and the count and deadlines of your rate limit resets. They are held in memory and in `plan-cache.json` (below), nothing else.
 - Nothing is sent to anyone but Anthropic. Switch the call off with the *Plan limits from Anthropic* setting and the mod makes no network request at all.
 - The endpoint is not a documented API; if it changes or refuses, the mod shows only the windows Claude Code reports.
 
@@ -30,6 +30,7 @@ All on your disk, under your user account:
 | --- | --- |
 | `~/.claude/claude-usage-mod/usage.json` | Spend for today, yesterday and 30 days, a 14-day trend, and the names of any models it has no price for |
 | `~/.claude/claude-usage-mod/usage-state.json` | Per-day totals, how far into each transcript it has read (keyed by a hash of the file's path, not the path), and the partial ids used to count a response once |
+| `~/.claude/claude-usage-mod/plan-cache.json` | The plan usage API's last good reply and when it came, the time to wait until after a refused request, and when a session started asking, so every session (terminal, desktop) shows the same limits without asking again. Usage figures only |
 | `~/.claude/claude-usage-mod/plan-usage.json` | Only if you run `/usage-mod debug`: the plan usage API's last reply as received, for bug reports. It holds usage figures, not transcripts; delete it when done |
 | `~/.claude/claude-usage-mod/usage.lock` | A lock that lasts only while the script runs |
 | Claude Code's plugin store | The last limit readings the engine reported, and this session's token totals with the session id |

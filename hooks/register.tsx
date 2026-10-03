@@ -4,7 +4,8 @@
 //                  cache, and starts two timers: a minute tick (reset countdowns) and the spend refresh.
 // session.measure: keeps limits, context and session cost live; the engine pushes it when a
 //                  rate-limit window moves a whole point and after each main-thread turn.
-// turn.complete:   adds the turn's tokens to this session's totals.
+// turn.complete:   adds the turn's tokens to this session's totals, and marks the session in use
+//                  so its next plan usage request is not held back as idle.
 // ui.render:       AbovePrompt draws the one-line band (SVG pills on desktop, Text chips on the
 //                  terminal); Pane draws the full view.
 // command.run:     /usage-mod opens the pane; /usage-mod text prints it; /usage-mod refresh re-reads transcripts.
@@ -18,6 +19,8 @@ import { bandTiers, pickLayout } from './band-model'
 import type { BandSnapshot } from './band-model'
 import { formatDuration } from './format'
 import { mergeLimits, resetSignature } from './limits'
+import { FAILURE_BACKOFF_MS, claimed, failed, holdReason, parsePlanCache, planCacheFile, retryAtFrom } from './plan-cache'
+import type { PlanCache } from './plan-cache'
 import { PLAN_USAGE_URL, parsePlanUsage, planUserAgent } from './plan-usage'
 import { SCRIPT_TIMEOUT_MS, parseSummary, scriptPath, summaryFile } from './spend-cache'
 import { summaryText } from './summary-text'
@@ -30,6 +33,10 @@ import { terminalPane } from './terminal-pane'
 const COMMAND = 'usage-mod'
 const PANE = 'usage-mod'
 const DEFAULT_REFRESH_MINUTES = 5
+// The plan usage API is asked less often than the transcripts are read: 5h and 7d come from the
+// engine for free, and what only the API has (Fable, Extra, resets) moves slowly. Never under 5.
+const DEFAULT_PLAN_REFRESH_MINUTES = 15
+const MIN_PLAN_REFRESH_MINUTES = 5
 // Pixels per terminal column on a surface that draws the band as SVG; an estimate, kept on the
 // narrow side so the band never overflows. The Details button keeps its own room.
 const CELL_PX = 7.4
@@ -119,39 +126,121 @@ async function apply($: EngineInterface, m: Measure) {
   }
 }
 
+/** The shared plan reply on disk; null when there is none, or HOME is unknown. */
+async function readPlanCache($: EngineInterface, home: string | undefined): Promise<PlanCache | null> {
+  if (!home) return null
+  try {
+    return parsePlanCache(await $.fs.read(planCacheFile(home)))
+  } catch {
+    return null
+  }
+}
+
+async function writePlanCache($: EngineInterface, home: string | undefined, cache: PlanCache) {
+  if (!home) return
+  try {
+    await $.fs.write(planCacheFile(home), JSON.stringify(cache))
+  } catch {
+    // Another session asks for itself next time; nothing on screen depends on this write.
+  }
+}
+
+/**
+ * Draws a plan reply. An old one (another session's, not refreshed for two intervals) only fills
+ * windows nothing else has, drawn pale like the previous session's. Null when it is not JSON.
+ */
+async function applyPlan($: EngineInterface, text: string, isOld: boolean): Promise<string[] | null> {
+  {
+    const next = text
+    if (changed(await read($, planRaw), next)) await update($, planRaw, () => next)
+  }
+  const parsed = parsePlanUsage(text, await $.clock.now())
+  if (!parsed) return null
+  if (isOld) {
+    const stored = await read($, storedLimits)
+    const next = [...stored, ...parsed.limits.filter(p => !stored.some(s => s.kind === p.kind))]
+    if (changed(stored, next)) await update($, storedLimits, () => next)
+  } else {
+    const next = parsed.limits
+    if (changed(await read($, planLimits), next)) await update($, planLimits, () => next)
+  }
+  {
+    const next = parsed.resetGrants ?? null
+    if (changed(await read($, resetGrants), next)) await update($, resetGrants, () => next)
+  }
+  await rebuildLimits($)
+  return parsed.keys
+}
+
+// What `/usage-mod debug` says when this session used the shared reply instead of asking.
+const HOLD_NOTES: Record<string, string> = {
+  'another session is asking': 'another session is asking now',
+  recent: 'the shared reply is recent',
+  idle: 'no turn since the last request',
+}
+
+// True until this session asks, and again after each of its turns: a session nobody is using asks
+// only once the shared reply is older than the idle interval (plan-cache.ts).
+let hasTurnSinceAsk = true
+// The request in flight in this session; a second caller waits for it instead of asking again.
+let planFetch: Promise<void> | null = null
+
 /**
  * Asks the plan usage API for every window of the plan, through the engine's credential handle: the
  * token itself never reaches this mod. Only a signed-in (bearer) session can ask; an API key, a
  * gateway or no login gets nothing and the engine's own two windows stand.
+ *
+ * The sessions take turns through plan-cache.ts, so the account is asked about once per interval
+ * however many sessions are open; a session that does not ask draws the shared reply. `force` (the
+ * refresh and debug commands) asks even when that reply is recent, but still waits out a refusal.
  */
-async function fetchPlanLimits($: EngineInterface) {
+function fetchPlanLimits($: EngineInterface, planMs: number, force = false): Promise<void> {
+  const pending = planFetch ?? askPlan($, planMs, force).then(() => undefined).finally(() => (planFetch = null))
+  planFetch = pending
+  return pending
+}
+
+async function askPlan($: EngineInterface, planMs: number, force: boolean) {
   const at = await $.clock.now()
   const note = (outcome: string, keys: string[] = []) => update($, planInfo, () => ({ at, outcome, keys }))
+  const home = await $.env.get('HOME')
+  let cache: PlanCache | null = null
+  let isAsking = false
+  const fromCache = async (outcome: string) => {
+    if (cache?.text === undefined || cache.at === undefined) return note(outcome)
+    const age = at - cache.at
+    const keys = await applyPlan($, cache.text, age >= planMs * 2)
+    return note(`${outcome}; showing the shared reply from ${formatDuration(age)} ago`, keys ?? [])
+  }
   try {
     const auth = await $.session.authorize()
     if (!auth || auth.kind !== 'bearer') return note('no signed-in session')
+    cache = await readPlanCache($, home)
+    const hold = holdReason(cache, at, { intervalMs: planMs, isActive: hasTurnSinceAsk, force })
+    if (hold === 'waiting') return fromCache(`the last request was refused, asking again in ${formatDuration((cache?.retryAt ?? at) - at)}`)
+    if (hold) return fromCache(HOLD_NOTES[hold] ?? hold)
+
+    await writePlanCache($, home, claimed(cache, at))
+    isAsking = true
+    hasTurnSinceAsk = false
     const userAgent = planUserAgent((await $.session.version()).version)
     const headers = { 'anthropic-beta': 'oauth-2025-04-20', accept: 'application/json', ...(userAgent ? { 'user-agent': userAgent } : {}) }
     const res = await $.http.fetch(PLAN_USAGE_URL, { auth: auth.handle, headers })
-    if (!res.ok) return note(`http ${res.status}`)
-    {
-      const next = res.text
-      if (changed(await read($, planRaw), next)) await update($, planRaw, () => next)
+    if (!res.ok) {
+      const retryAt = res.status === 429 ? retryAtFrom(res.headers, at, planMs) : at + FAILURE_BACKOFF_MS
+      await writePlanCache($, home, failed(cache, retryAt))
+      return fromCache(`http ${res.status}`)
     }
-    const parsed = parsePlanUsage(res.text, at)
-    if (!parsed) return note('not json')
-    {
-      const next = parsed.limits
-      if (changed(await read($, planLimits), next)) await update($, planLimits, () => next)
+    const keys = await applyPlan($, res.text, false)
+    if (!keys) {
+      await writePlanCache($, home, failed(cache, at + FAILURE_BACKOFF_MS))
+      return fromCache('not json')
     }
-    {
-      const next = parsed.resetGrants ?? null
-      if (changed(await read($, resetGrants), next)) await update($, resetGrants, () => next)
-    }
-    await note('ok', parsed.keys)
-    await rebuildLimits($)
+    await writePlanCache($, home, { at, text: res.text })
+    await note('ok', keys)
   } catch {
-    await note('request failed')
+    if (isAsking) await writePlanCache($, home, failed(cache, at + FAILURE_BACKOFF_MS))
+    await fromCache('request failed')
   }
 }
 
@@ -241,7 +330,7 @@ let isBooted = false
 // Everything a session needs started: the command, the first readings, and the timers. It runs on
 // session.start, but also from the first measure or command, because a reload through
 // /reload-plugins drops the old timers without firing session.start again.
-async function boot($: EngineInterface, refreshMs: number, wantsPlanLimits: boolean) {
+async function boot($: EngineInterface, refreshMs: number, planMs: number, wantsPlanLimits: boolean) {
   if (isBooted) return
   isBooted = true
   await $.command.register({
@@ -281,31 +370,34 @@ async function boot($: EngineInterface, refreshMs: number, wantsPlanLimits: bool
   every($, refreshMs, gen, () => refresh($, refreshMs))
   void refresh($, refreshMs)
   if (wantsPlanLimits) {
-    every($, refreshMs, gen, () => fetchPlanLimits($))
-    void fetchPlanLimits($)
+    every($, planMs, gen, () => fetchPlanLimits($, planMs))
+    void fetchPlanLimits($, planMs)
   }
 }
 
 export const register: Register = (on, options) => {
   const refreshMinutes = Number(options.refreshMinutes)
   const refreshMs = (refreshMinutes >= 1 ? refreshMinutes : DEFAULT_REFRESH_MINUTES) * 60_000
+  const planMinutes = Number(options.planRefreshMinutes)
+  const planMs = (Number.isFinite(planMinutes) && planMinutes > 0 ? Math.max(MIN_PLAN_REFRESH_MINUTES, planMinutes) : DEFAULT_PLAN_REFRESH_MINUTES) * 60_000
   const isBandOn = options.view !== 'off'
   const showSpend = options.showSpend !== false
   const wantsPlanLimits = options.planLimits !== false
   const isInteractive = options.interactive !== false
 
   on('session.start', async ($, e, next) => {
-    await boot($, refreshMs, wantsPlanLimits)
+    await boot($, refreshMs, planMs, wantsPlanLimits)
     return next(e)
   })
 
   on('session.measure', async ($, e, next) => {
-    await boot($, refreshMs, wantsPlanLimits)
+    await boot($, refreshMs, planMs, wantsPlanLimits)
     await apply($, e)
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
+    hasTurnSinceAsk = true
     const u = e.usage
     if (u) {
       await update($, tokens, t => ({
@@ -381,14 +473,14 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: COMMAND }, async ($, e) => {
     const arg = e.args.trim()
-    await boot($, refreshMs, wantsPlanLimits)
+    await boot($, refreshMs, planMs, wantsPlanLimits)
     if (arg === 'refresh') {
       await refresh($, refreshMs)
-      if (wantsPlanLimits) await fetchPlanLimits($)
+      if (wantsPlanLimits) await fetchPlanLimits($, planMs, true)
     }
     if (arg === 'debug') {
       // Always asks again: the saved reply must be the one this command's figures come from.
-      if (wantsPlanLimits) await fetchPlanLimits($)
+      if (wantsPlanLimits) await fetchPlanLimits($, planMs, true)
       const info = await read($, planInfo)
       const at = info ? formatDuration((await $.clock.now()) - info.at) : undefined
       // The raw reply is saved so a bug report can show exactly what the API sent; it holds usage

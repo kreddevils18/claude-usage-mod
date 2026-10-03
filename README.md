@@ -63,6 +63,7 @@ In Claude Code's `/config` menu, under the plugin's name:
 | Plan limits from Anthropic (Fable, extra usage) | on |
 | Tooltips and animation on the desktop app | on (turn it off if the band flickers) |
 | Spend refresh minutes | 5 |
+| Plan limits refresh minutes (5 at the least) | 15 |
 
 ## Where it draws
 
@@ -82,7 +83,7 @@ In Claude Code's `/config` menu, under the plugin's name:
 | Figure | Source |
 | --- | --- |
 | 5h and 7d limits, context, session cost | Claude Code itself, as its status line gets them; the limits arrive with the first response of a session |
-| Fable and other model limits, extra usage, rate limit resets | Anthropic's plan usage API, the one Claude Code's own `/usage` reads, asked through your signed-in session every few minutes. Model limits are the `weekly_scoped` entries of its `limits` list, extra usage is dollars spent over the monthly cap, resets are your granted one-off resets. It also fills 5h and 7d before the first response. Switch it off with the *Plan limits* setting |
+| Fable and other model limits, extra usage, rate limit resets | Anthropic's plan usage API, the one Claude Code's own `/usage` reads, asked through your signed-in session every 15 minutes (the *Plan limits refresh* setting). The sessions take turns: one asks and saves the reply for the others, so the terminal and the desktop app show the same figures however many sessions are open, and a session with no turn since its last request waits until the reply is 30 minutes old. Model limits are the `weekly_scoped` entries of its `limits` list, extra usage is dollars spent over the monthly cap, resets are your granted one-off resets. It also fills 5h and 7d before the first response. Switch it off with the *Plan limits* setting |
 | Session tokens | Added up from each completed turn; kept per session, so a resume continues the count |
 | Today, yesterday, 30 days | `scripts/aggregate-usage.mjs` reads the usage numbers in your transcripts under `~/.claude/projects` and prices them with [`config/pricing.json`](config/pricing.json) |
 
@@ -90,7 +91,7 @@ In Claude Code's `/config` menu, under the plugin's name:
 
 ## What it does on your machine
 
-It reads token counts and timestamps from your Claude Code transcripts and keeps a small summary in `~/.claude/claude-usage-mod`. It never keeps prompt text, tool output or file paths. Its one network request is the plan usage call above, made through Claude Code's credential handle, so the mod never sees your token; the setting turns it off. Details in [PRIVACY.md](PRIVACY.md).
+It reads token counts and timestamps from your Claude Code transcripts and keeps a small summary, and the plan usage API's last reply, in `~/.claude/claude-usage-mod`. It never keeps prompt text, tool output or file paths. Its one network request is the plan usage call above, made through Claude Code's credential handle, so the mod never sees your token; the setting turns it off. Details in [PRIVACY.md](PRIVACY.md).
 
 A mod is code that runs inside Claude Code with your permissions, written by its publisher and not by Anthropic. Read the source before you install it; it is a few small files, and `claude plugin validate` lists every call it makes.
 
@@ -99,7 +100,7 @@ A mod is code that runs inside Claude Code with your permissions, written by its
 - **Nothing shows above the prompt.** Run `/plugin` and look for `usage-mod`; run `/reload-plugins` or restart. Mods need Claude Code 2.1.287 or later, and the `view` setting must not be `off`.
 - **The limits say "no reading yet".** They arrive with the first response of a session; send any message.
 - **Spend is missing or old.** Check that `node` runs in a terminal, then run `/usage-mod refresh`. You can also run `node scripts/aggregate-usage.mjs` by hand or from cron: the mod reads the file it writes.
-- **No Fable or Extra chip.** The pane's rows say **No data** when your plan does not report them: Extra needs extra usage switched on with a monthly cap. Run `/usage-mod debug` to see whether the plan call worked and which fields it returned. The endpoint is not a documented API, so it can change; when it fails the band falls back to the two windows Claude Code reports.
+- **No Fable or Extra chip.** The pane's rows say **No data** when your plan does not report them: Extra needs extra usage switched on with a monthly cap. Run `/usage-mod debug` to see whether the plan call worked and which fields it returned. If it says `http 429`, the API is refusing requests for a while; the mod then shows the last reply any session saved, and no session asks again before the time Anthropic gives (a minute after any other failure). Other apps that read the same API, such as OpenUsage, count against the same account limit. The endpoint is not a documented API, so it can change; when it fails with nothing saved, the band falls back to the two windows Claude Code reports.
 - **A figure disagrees with the plan page.** Limits and session cost come straight from Claude Code. The spend figures are the list-price estimate described above.
 
 ## Contributing
