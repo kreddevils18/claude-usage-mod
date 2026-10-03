@@ -6,7 +6,7 @@ import type { On, RenderPropsOf, SessionUsage } from 'claude-code'
 import { bandTiers, packRows, pickLayout } from '../hooks/band-model'
 import { formatDuration, formatTokens, formatUsd, miniBar, pacText, sparkline, untilReset } from '../hooks/format'
 import { mergeLimits, resetSignature, severity, toLimits } from '../hooks/limits'
-import { parsePlanUsage } from '../hooks/plan-usage'
+import { parsePlanUsage, planUserAgent } from '../hooks/plan-usage'
 import { parseSummary } from '../hooks/spend-cache'
 import { paneModel } from '../hooks/pane-model'
 import { summaryText } from '../hooks/summary-text'
@@ -136,7 +136,7 @@ describe('spend summary', () => {
 // for a session where $.process is unavailable.
 function engine(
   on: On,
-  state: { usage: SessionUsage; process: SpendSummary | null; file: SpendSummary | null; plan?: string | { status: number; text: string }; fetches?: { n: number }; urls?: string[]; written?: string[] },
+  state: { usage: SessionUsage; process: SpendSummary | null; file: SpendSummary | null; plan?: string | { status: number; text: string }; fetches?: { n: number }; urls?: string[]; headers?: Record<string, string>[]; version?: string; written?: string[] },
   store: Record<string, unknown> = {},
 ) {
   const clock = mock.clock(on, { now: NOW })
@@ -148,11 +148,13 @@ function engine(
   on('session.measure', () => ({ changed: [] }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.id', () => ({ value: 'test-session' }))
+  on('session.version', () => ({ value: { version: state.version ?? '2.1.280' } }))
   // With no `plan` there is no signed-in session, so no plan fetch is made.
   on('session.authorize', () => ({ value: state.plan === undefined ? null : { handle: 'handle-1', kind: 'bearer' as const } }))
   on('http.fetch', (_$, e) => {
     if (state.fetches) state.fetches.n++
     state.urls?.push(e.url)
+    state.headers?.push(e.init?.headers ?? {})
     const plan = typeof state.plan === 'string' ? { status: 200, text: state.plan } : (state.plan ?? { status: 404, text: '' })
     return { value: { status: plan.status, ok: plan.status >= 200 && plan.status < 300, headers: {}, text: plan.text } }
   })
@@ -652,10 +654,11 @@ describe('plan usage', () => {
     expect(parsePlanUsage(JSON.stringify({ extra_usage: null }))!.limits).toEqual([])
   })
 
-  test('reset grants count each reset left, skip spent or expired grants, and read 0 when not eligible', () => {
+  test('reset grants count each reset left, skip spent or expired grants, and claim nothing when the account is not eligible', () => {
     const grants = (cedar: object | null) => parsePlanUsage(JSON.stringify({ cedar_ember: cedar }), NOW)!.resetGrants
     expect(grants({ eligible: true, grants: [{ resets_left: 2, ends_at: '2026-10-20T00:00:00Z' }, { resets_left: 0 }, { resets_left: 1, ends_at: '2026-10-01T00:00:00Z' }] })).toEqual({ count: 2, expiries: ['2026-10-20T00:00:00Z', '2026-10-20T00:00:00Z'] })
-    expect(grants({ eligible: false, grants: [{ resets_left: 3 }] })).toEqual({ count: 0, expiries: [] })
+    expect(grants({ eligible: false, ineligible_reason: 'surface', grants: [] })).toBeUndefined()
+    expect(grants({ eligible: true, grants: [] })).toEqual({ count: 0, expiries: [] })
     expect(grants(null)).toBeUndefined()
     expect(parsePlanUsage('{}')!.resetGrants).toBeUndefined()
   })
@@ -740,6 +743,21 @@ describe('plan usage in the mod', () => {
     await start($, clock)
     expect(urls).toHaveLength(1)
     expect(new URL(urls[0]).searchParams.get('cedar_ember')).toBe('1')
+  })
+
+  test('the request names Claude Code as the client, with the running engine version', async ($, on) => {
+    const headers: Record<string, string>[] = []
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: PLAN, headers, version: '2.1.281-dev.20260920.t101500.sha1a2b3c4' })
+    await start($, clock)
+    expect(headers).toHaveLength(1)
+    expect(headers[0]['user-agent']).toBe('claude-cli/2.1.281 (external, cli)')
+    expect(headers[0]['anthropic-beta']).toBe('oauth-2025-04-20')
+  })
+
+  test('an engine version that is not a release number sends no user agent', () => {
+    expect(planUserAgent('2.1.280')).toBe('claude-cli/2.1.280 (external, cli)')
+    expect(planUserAgent('main')).toBeUndefined()
+    expect(planUserAgent('')).toBeUndefined()
   })
 
   test('Fable and Extra stay on a narrow terminal band, on two rows', async ($, on) => {

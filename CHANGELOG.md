@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- The plan usage request now names Claude Code as its client (`claude-cli/<engine version> (external, cli)`). Anthropic grants rate limit resets by client, and answered a request it did not recognise with `eligible: false`, so the Usage resets row could never show the real count.
+- The Usage resets row no longer reads "0 available" when the API says the account is not eligible; it is left out rather than claim a count it does not know.
+
 ## 0.1.1
 
 - Fix: the Usage resets row never appeared. The plan usage API returns the rate limit reset grants only when the request asks for them, so the request now does.
