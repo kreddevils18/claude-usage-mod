@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-usage-mod",
+  "description": "Usage chips for Claude Code: limits, cost and spend history as a one-line band above the prompt",
+  "owner": {
+    "name": "Kien Hoang Trung"
+  },
+  "plugins": [
+    {
+      "name": "usage-mod",
+      "description": "Usage as colored chips above the prompt: 5h and weekly limits (% left), session cost, spend history. /usage-mod opens the full view.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

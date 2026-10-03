@@ -1,0 +1,57 @@
+{
+  "name": "usage-mod",
+  "version": "0.1.0",
+  "description": "Your Claude Code usage as colored chips above the prompt: 5h and weekly limits (% left), session cost and spend history. /usage-mod opens the full view.",
+  "author": {
+    "name": "Kien Hoang Trung",
+    "url": "https://github.com/kreddevils18"
+  },
+  "homepage": "https://github.com/kreddevils18/claude-usage-mod",
+  "repository": "https://github.com/kreddevils18/claude-usage-mod",
+  "license": "MIT",
+  "keywords": [
+    "usage",
+    "rate-limits",
+    "cost",
+    "statusline",
+    "chips",
+    "claude-code-mod"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "refreshMinutes": {
+      "type": "number",
+      "title": "Spend refresh minutes",
+      "description": "How often the transcripts are re-read for Today, Yesterday and 30-day spend",
+      "default": 5
+    },
+    "view": {
+      "type": "string",
+      "title": "Band",
+      "description": "Show the chip band above the prompt",
+      "default": "band",
+      "options": [
+        "band",
+        "off"
+      ]
+    },
+    "showSpend": {
+      "type": "boolean",
+      "title": "Show today spend",
+      "description": "Add a Today spend chip to the band on wide screens",
+      "default": true
+    },
+    "planLimits": {
+      "type": "boolean",
+      "title": "Plan limits from Anthropic",
+      "description": "Ask Anthropic's plan usage API (what /usage reads) for the limits Claude Code does not report, such as Fable and extra usage. Uses your signed-in session through Claude Code; the token never reaches the mod.",
+      "default": true
+    },
+    "interactive": {
+      "type": "boolean",
+      "title": "Tooltips and animation (desktop)",
+      "description": "Draw the band and pane as interactive SVG: hover tooltips and Pac-Man's chomp. The desktop app redraws an interactive SVG by reloading its frame, so turn this off if the band flickers.",
+      "default": true
+    }
+  }
+}
