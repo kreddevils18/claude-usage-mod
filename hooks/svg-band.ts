@@ -8,7 +8,7 @@ import type { Piece } from './svg-kit'
 import type { IconName } from './svg-icons'
 import { BAR_COLOR, TONES } from './theme'
 
-export const HEIGHT = 28
+const HEIGHT = 28
 const PAD = 10
 const GAP = 8
 const BAR_W = 64
@@ -24,7 +24,7 @@ const pill = (x: number, width: number, bg: string, inner: string): string =>
 
 const LEAD: Record<LimitSegment['tone'], IconName> = { five: 'gauge', extra: 'gauge', seven: 'calendar', model: 'layers', context: 'pie' }
 
-export function limitPill(s: LimitSegment, x: number): Piece {
+function limitPill(s: LimitSegment, x: number): Piece {
   const p = TONES[s.tone]
   const pct = `${s.percentLeft}%`
   let cur = PAD
@@ -53,7 +53,7 @@ export function limitPill(s: LimitSegment, x: number): Piece {
 
 type ChipTone = keyof typeof TONES
 
-export function chipPill(x: number, tone: ChipTone, name: IconName, label: string, tip: string): Piece {
+function chipPill(x: number, tone: ChipTone, name: IconName, label: string, tip: string): Piece {
   const p = TONES[tone]
   const width = PAD + ICON + 5 + textWidth(label) + PAD
   const inner = icon(name, PAD, ICON_Y, p.accent) + text(label, PAD + ICON + 5, TEXT_Y, p.ink)
@@ -73,7 +73,7 @@ export function segmentPill(s: Segment, x: number): Piece {
   return s.kind === 'session' ? chipPill(x, 'session', 'coin', s.text, s.tip) : chipPill(x, 'today', 'trend', s.text, s.tip)
 }
 
-export const describeSegments = (segments: readonly Segment[]): string =>
+const describeSegments = (segments: readonly Segment[]): string =>
   segments
     .map(s =>
       s.type === 'limit'

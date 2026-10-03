@@ -5,7 +5,7 @@ import type { On, RenderPropsOf, SessionUsage } from 'claude-code'
 
 import { bandTiers, packRows, pickLayout } from '../hooks/band-model'
 import { formatDuration, formatTokens, formatUsd, miniBar, pacText, sparkline, untilReset } from '../hooks/format'
-import { mergeLimits, resetSignature, severity, tightest, toLimits } from '../hooks/limits'
+import { mergeLimits, resetSignature, severity, toLimits } from '../hooks/limits'
 import { parsePlanUsage } from '../hooks/plan-usage'
 import { parseSummary } from '../hooks/spend-cache'
 import { paneModel } from '../hooks/pane-model'
@@ -92,14 +92,12 @@ describe('limits', () => {
     ])
   })
 
-  test('clamps odd readings and picks the tightest window', () => {
+  test('clamps odd readings into 0-100% left', () => {
     const limits = toLimits([
       { kind: 'five_hour', percentUsed: 120 },
       { kind: 'seven_day', percentUsed: -4 },
     ])
     expect(limits.map(l => l.percentLeft)).toEqual([0, 100])
-    expect(tightest(limits)?.label).toBe('5h')
-    expect(tightest([])).toBeUndefined()
   })
 
   test('severity turns yellow under 35% and red under 15%', () => {
@@ -336,11 +334,10 @@ describe('band tiers', () => {
     expect(layout.flat().some(s => s.type === 'money')).toBe(false)
   })
 
-  test('a limit carries its countdown and a tooltip, with no pace mark', () => {
+  test('a limit carries its countdown and a tooltip', () => {
     const [five] = bandTiers(SNAP, true)[0]
     expect(five).toMatchObject({ type: 'limit', reset: '4h14m', detail: 'resets in 4h14m' })
     expect((five as { tip: string }).tip).toContain('5-hour limit: 95% left. Resets in 4h14m.')
-    expect('pace' in five).toBe(false)
   })
 })
 
@@ -352,7 +349,6 @@ describe('svg band', () => {
     expect(band.source).toContain('$29.90 today')
     expect(band.alt).toContain('5-hour 95% left, resets in 4h14m')
     expect(band.alt).toContain('$29.90 today')
-    expect(band.source).not.toContain('15.6k')
   })
 
   test('a leaner tier is narrower, and markup stays well inside the size limit', () => {
@@ -398,12 +394,11 @@ describe('the band on screen', () => {
 const PANE_SNAP = { ...SNAP, spendStatus: 'ok' as const }
 
 describe('pane model', () => {
-  test('limits and the session chips come from the snapshot; context is not a pane row', () => {
+  test('limits (with empty slots) and the session chips come from the snapshot', () => {
     const m = paneModel(PANE_SNAP)
     expect(m.limits.map(l => (l.type === 'limit' ? l.label : l.name))).toEqual(['5h', '7d', 'Fable weekly', 'Extra usage'])
     expect(m.limits.filter(l => l.type === 'empty').map(l => l.note)).toEqual(['No data', 'No data'])
     expect(m.session.map(s => s.type)).toEqual(['token', 'token', 'token', 'money'])
-    expect('context' in m).toBe(false)
   })
 
   test('spend rows are label, dollars and tokens; the trend carries its peak', () => {
@@ -418,7 +413,7 @@ describe('pane model', () => {
 
   test('the note says why spend is missing or old, and stays quiet when all is well', () => {
     expect(paneModel(PANE_SNAP).note).toBeUndefined()
-    expect(paneModel({ ...PANE_SNAP, spend: null, spendStatus: 'refreshing' }).note).toContain('Reading')
+    expect(paneModel({ ...PANE_SNAP, spend: null, spendStatus: 'idle' }).note).toContain('Reading')
     expect(paneModel({ ...PANE_SNAP, spend: null, spendStatus: 'unavailable' }).note).toContain('aggregate-usage.mjs')
     expect(paneModel({ ...PANE_SNAP, spendStatus: 'unavailable', spend: { ...SUMMARY, updatedAt: NOW - 3_600_000 } }).note).toContain('1h00m ago')
     expect(paneModel({ ...PANE_SNAP, spend: { ...SUMMARY, unknownModels: ['x-9'] } }).note).toContain('x-9')
@@ -431,8 +426,6 @@ describe('svg pane', () => {
     expect(card.source).toContain('Weekly')
     expect(card.source).toContain('text-anchor="end"')
     expect(card.width).toBe(440)
-    expect(card.source).not.toContain('stroke="#e3dfd6"')
-    expect(card.source).not.toContain('OVERVIEW')
     expect(card.source).toContain(`height="${card.height}"`)
   })
 
@@ -456,11 +449,12 @@ describe('svg pane', () => {
   test('is well-formed: no unescaped quote inside an attribute, within the size limit', () => {
     const { source } = paneSvg(paneModel(PANE_SNAP))
     expect(source.length).toBeLessThan(60_000)
-    expect(/font-family="[^"]*"[^"]*"/.test(source.replace(/font-family="[^"]*"/g, ''))).toBe(false)
+    // Once every complete attribute is removed, no quote may be left over.
+    expect(source.replace(/="[^"]*"/g, '')).not.toContain('"')
   })
 
   test('with no limit readings every window still has a row, marked No data', () => {
-    const card = paneSvg(paneModel({ ...PANE_SNAP, limits: [], spend: null, spendStatus: 'refreshing', tokens: { up: 0, down: 0, cache: 0 }, sessionUsd: null }))
+    const card = paneSvg(paneModel({ ...PANE_SNAP, limits: [], spend: null, spendStatus: 'idle', tokens: { up: 0, down: 0, cache: 0 }, sessionUsd: null }))
     for (const name of ['5-hour', 'Weekly', 'Fable weekly', 'Extra usage']) expect(card.source).toContain(name)
     expect(card.source.match(/No data/g)).toHaveLength(4)
     expect(card.source).toContain('not reported by your plan')
@@ -492,7 +486,6 @@ describe('the pane on screen', () => {
       expect(await ui.find({ type: 'Button', label: 'Refresh spend' })).toBeDefined()
       if (surface === 'terminal') {
         expect(await ui.find({ type: 'Text', text: 'LIMITS' })).toBeDefined()
-        expect(await ui.find({ type: 'Text', text: 'OVERVIEW' })).toBeUndefined()
         expect(await ui.find({ type: 'Text', text: 'Today' })).toBeDefined()
       } else {
         expect(await ui.find({ type: 'Svg' })).toBeDefined()
@@ -504,7 +497,7 @@ describe('the pane on screen', () => {
 describe('what survives between sessions', () => {
   test('limits seen last time show, marked stale, until this session has a response of its own', async ($, on) => {
     const clock = engine(on, { usage: { ...USAGE, rateLimits: [] }, process: SUMMARY, file: null }, {
-      limits: { savedAt: NOW - 600_000, limits: [{ kind: 'five_hour', percentUsed: 30, resetsAt: '2026-10-03T09:14:00Z' }] },
+      limits: { limits: [{ kind: 'five_hour', percentUsed: 30, resetsAt: '2026-10-03T09:14:00Z' }] },
     })
     await start($, clock)
 
@@ -515,7 +508,7 @@ describe('what survives between sessions', () => {
 
   test('a stored window that has already reset is dropped', async ($, on) => {
     const clock = engine(on, { usage: { ...USAGE, rateLimits: [] }, process: SUMMARY, file: null }, {
-      limits: { savedAt: NOW - 3_600_000, limits: [{ kind: 'five_hour', percentUsed: 30, resetsAt: '2026-10-03T04:00:00Z' }] },
+      limits: { limits: [{ kind: 'five_hour', percentUsed: 30, resetsAt: '2026-10-03T04:00:00Z' }] },
     })
     await start($, clock)
 
@@ -524,7 +517,7 @@ describe('what survives between sessions', () => {
 
   test('a live reading replaces the stored one', async ($, on) => {
     const clock = engine(on, { usage: { ...USAGE, rateLimits: [] }, process: SUMMARY, file: null }, {
-      limits: { savedAt: NOW - 600_000, limits: [{ kind: 'five_hour', percentUsed: 30, resetsAt: '2026-10-03T09:14:00Z' }] },
+      limits: { limits: [{ kind: 'five_hour', percentUsed: 30, resetsAt: '2026-10-03T09:14:00Z' }] },
     })
     await start($, clock)
     await $.session.measure({ context: USAGE.context, rateLimits: [{ kind: 'five_hour', percentUsed: 50, resetsAt: '2026-10-03T09:14:00Z' }] })

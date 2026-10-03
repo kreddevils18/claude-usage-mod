@@ -3,15 +3,15 @@
 import { ICONS } from './svg-icons'
 import type { IconName } from './svg-icons'
 
-export const FONT = 12
+const FONT = 12
 // Monospace at 12px is about 7.2px per character; text is sized from that.
-export const CHAR = 7.2
-export const FONT_FAMILY = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace'
+const CHAR = 7.2
+const FONT_FAMILY = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace'
 // Single quotes inside: the value sits in a double-quoted attribute.
 export const SANS_FAMILY = "-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
 export const ICON = 14
 
-export const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 export const textWidth = (t: string) => Math.ceil(t.length * CHAR)
 
 export type Piece = { svg: string; width: number }
@@ -49,7 +49,7 @@ const pacPath = (cx: number, cy: number, r: number, half: number): string => {
   return `M${cx} ${cy}L${(cx + Number(dx)).toFixed(2)} ${(cy - Number(dy)).toFixed(2)}A${r} ${r} 0 1 0 ${(cx + Number(dx)).toFixed(2)} ${(cy + Number(dy)).toFixed(2)}Z`
 }
 
-export type PacBarOpts = { dots: number; radius: number }
+type PacBarOpts = { dots: number; radius: number }
 
 /**
  * A usage bar as Pac-Man eating dots. Pac-Man sits at how much is used; the dots ahead of it are

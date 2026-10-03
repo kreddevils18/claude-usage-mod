@@ -2,10 +2,10 @@
 // each with a tooltip saying what the number is, and which of them survive at a given width.
 // The SVG band (desktop) and the Text band (terminal) both draw this same list, and the pane
 // reads the same segment builders.
-import { formatDuration, formatTokens, formatUsd, groupDigits, untilReset } from './format'
+import { formatDuration, formatTokens, formatUsd, untilReset } from './format'
 import { severity } from './limits'
 import type { Severity } from './limits'
-import type { ContextUsage, Limit, SessionTokens, SpendSummary } from '../types'
+import type { ContextUsage, Limit, SpendSummary } from '../types'
 
 /** Which color family a limit pill takes. */
 export type Tone = 'five' | 'seven' | 'model' | 'extra' | 'context'
@@ -34,11 +34,10 @@ export type TokenSegment = { type: 'token'; kind: TokenKind; text: string; tip: 
 export type MoneySegment = { type: 'money'; kind: 'session' | 'today'; text: string; tip: string }
 export type Segment = LimitSegment | TokenSegment | MoneySegment
 
+/** What the band reads: the windows, the context, today's spend and the clock. */
 export type BandSnapshot = {
   limits: readonly Limit[]
   context: ContextUsage | null
-  sessionUsd: number | null
-  tokens: SessionTokens
   spend: SpendSummary | null
   now: number
 }
@@ -76,7 +75,7 @@ function limitSegment(l: Limit, now: number, withReset: boolean, slim: boolean):
 export const limitSegments = (s: BandSnapshot, withReset: boolean, slim = false): LimitSegment[] => s.limits.map(l => limitSegment(l, s.now, withReset, slim))
 
 /** The context window as a pill that looks like a limit, with no reset. */
-export function contextSegment(s: BandSnapshot, slim = false): LimitSegment | undefined {
+function contextSegment(s: BandSnapshot, slim = false): LimitSegment | undefined {
   const c = s.context
   if (!c || c.percent == null) return undefined
   const percentLeft = Math.max(0, Math.min(100, Math.round(100 - c.percent)))
@@ -95,23 +94,7 @@ export function contextSegment(s: BandSnapshot, slim = false): LimitSegment | un
   }
 }
 
-const hasTokens = (t: SessionTokens) => t.up + t.down + t.cache > 0
-
-export function tokenSegments(s: BandSnapshot): TokenSegment[] {
-  if (!hasTokens(s.tokens)) return []
-  const t = s.tokens
-  return [
-    { type: 'token', kind: 'up', text: formatTokens(t.up), tip: `Input tokens this session, not counting cache: ${groupDigits(t.up)}.` },
-    { type: 'token', kind: 'down', text: formatTokens(t.down), tip: `Output tokens this session: ${groupDigits(t.down)}.` },
-    { type: 'token', kind: 'cache', text: formatTokens(t.cache), tip: `Cache reads and writes this session: ${groupDigits(t.cache)} tokens.` },
-  ]
-}
-
-export function sessionSegment(s: BandSnapshot): MoneySegment | undefined {
-  return s.sessionUsd == null ? undefined : { type: 'money', kind: 'session', text: formatUsd(s.sessionUsd), tip: `Cost of this session so far: ${formatUsd(s.sessionUsd)}.` }
-}
-
-export function todaySegment(s: BandSnapshot): MoneySegment | undefined {
+function todaySegment(s: BandSnapshot): MoneySegment | undefined {
   if (!s.spend) return undefined
   const d = s.spend.today
   return { type: 'money', kind: 'today', text: `${formatUsd(d.usd)} today`, tip: `Spend today across all sessions: ${formatUsd(d.usd)}, ${formatTokens(d.tokens)} tokens.` }
@@ -148,7 +131,7 @@ export function bandTiers(s: BandSnapshot, showSpend: boolean): Segment[][] {
 }
 
 /** Rows of segments, each drawn on its own line. */
-export type Layout = Segment[][]
+type Layout = Segment[][]
 
 /**
  * Packs segments, in order, into at most `maxRows` lines no wider than `room` (as `measure` counts

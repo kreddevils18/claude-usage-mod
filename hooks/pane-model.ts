@@ -1,19 +1,19 @@
 // What the Details pane shows, independent of surface: the desktop draws it as one SVG card
 // (svg-pane.ts) and the terminal as Text rows (terminal-pane.tsx), both from this model.
 // The context window is not a pane section: it lives in the band's ctx chip.
-import { limitSegments, sessionSegment, tokenSegments } from './band-model'
+import { limitSegments } from './band-model'
 import type { BandSnapshot, LimitSegment, MoneySegment, TokenSegment } from './band-model'
-import { formatDuration, formatTokens, formatUsd, shortDay } from './format'
-import type { ResetGrants, SpendStatus } from '../types'
+import { formatDuration, formatTokens, formatUsd, groupDigits, shortDay } from './format'
+import type { ResetGrants, SessionTokens, SpendStatus } from '../types'
 
-export type SpendRow = { label: string; usd: string; tokens: string; tip: string }
-export type TrendBar = { day: string; usd: number; tip: string }
+type SpendRow = { label: string; usd: string; tokens: string; tip: string }
+type TrendBar = { day: string; usd: number; tip: string }
 
 /** A window the pane always has a row for: drawn as "No data" until the plan reports it. */
-export type EmptyLimit = { type: 'empty'; tone: LimitSegment['tone']; name: string; note: string; detail: string; tip: string }
+type EmptyLimit = { type: 'empty'; tone: LimitSegment['tone']; name: string; note: string; detail: string; tip: string }
 
 /** A count rather than a bar: the rate-limit resets Anthropic has granted. */
-export type CountRow = { type: 'count'; tone: LimitSegment['tone']; name: string; value: string; detail: string; tip: string }
+type CountRow = { type: 'count'; tone: LimitSegment['tone']; name: string; value: string; detail: string; tip: string }
 
 export type PaneModel = {
   /** Rate limits in order; Fable and Extra are always there, as an EmptyLimit when there is no reading. */
@@ -28,9 +28,26 @@ export type PaneModel = {
   note?: string
 }
 
-export type PaneSnapshot = BandSnapshot & { spendStatus: SpendStatus; resetGrants?: ResetGrants | null }
+/** What the pane reads: everything the band does, plus this session and the spend status. */
+export type PaneSnapshot = BandSnapshot & { sessionUsd: number | null; tokens: SessionTokens; spendStatus: SpendStatus; resetGrants?: ResetGrants | null }
 
 const defined = <T,>(x: T | undefined): x is T => x !== undefined
+
+const hasTokens = (t: SessionTokens) => t.up + t.down + t.cache > 0
+
+export function tokenSegments(s: PaneSnapshot): TokenSegment[] {
+  if (!hasTokens(s.tokens)) return []
+  const t = s.tokens
+  return [
+    { type: 'token', kind: 'up', text: formatTokens(t.up), tip: `Input tokens this session, not counting cache: ${groupDigits(t.up)}.` },
+    { type: 'token', kind: 'down', text: formatTokens(t.down), tip: `Output tokens this session: ${groupDigits(t.down)}.` },
+    { type: 'token', kind: 'cache', text: formatTokens(t.cache), tip: `Cache reads and writes this session: ${groupDigits(t.cache)} tokens.` },
+  ]
+}
+
+export function sessionSegment(s: PaneSnapshot): MoneySegment | undefined {
+  return s.sessionUsd == null ? undefined : { type: 'money', kind: 'session', text: formatUsd(s.sessionUsd), tip: `Cost of this session so far: ${formatUsd(s.sessionUsd)}.` }
+}
 
 function noteFor(s: PaneSnapshot): string | undefined {
   if (s.spend && s.spendStatus === 'unavailable') return `Spend is from ${formatDuration(s.now - s.spend.updatedAt)} ago; the script cannot run in this session.`

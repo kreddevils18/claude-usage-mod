@@ -104,7 +104,7 @@ async function apply($: EngineInterface, m: Measure) {
     const json = JSON.stringify(raw)
     if (json !== lastSavedLimits) {
       lastSavedLimits = json
-      const saved: StoredLimits = { savedAt: await $.clock.now(), limits: raw }
+      const saved: StoredLimits = { limits: raw }
       await $.store.set('limits', saved)
     }
   }
@@ -169,14 +169,12 @@ async function snapshot($: EngineInterface): Promise<BandSnapshot & { spendStatu
 }
 
 // The band shows limits, context and today's spend, nothing else: it reads only those, so a new
-// token total or a refreshing spend status does not redraw it.
+// token total or a spend status change does not redraw it.
 async function bandSnapshot($: EngineInterface): Promise<BandSnapshot> {
   await read($, tick)
   return {
     limits: await read($, limits),
     context: await read($, context),
-    sessionUsd: null,
-    tokens: { up: 0, down: 0, cache: 0 },
     spend: await read($, spend),
     now: await $.clock.now(),
   }

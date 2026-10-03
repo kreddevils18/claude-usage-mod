@@ -3,7 +3,7 @@
 import type { Severity } from './limits'
 import type { Tone } from './band-model'
 
-export type Palette = { bg: string; ink: string; accent: string }
+type Palette = { bg: string; ink: string; accent: string }
 
 export const TONES: Record<Tone | 'up' | 'down' | 'cache' | 'session' | 'today', Palette> = {
   five: { bg: '#dcebe0', ink: '#25402f', accent: '#3f8f5b' },

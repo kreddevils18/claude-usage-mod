@@ -10,7 +10,7 @@ import type { IconName } from './svg-icons'
 import { BAR_COLOR, TONES } from './theme'
 import type { Tone } from './band-model'
 
-export const DEFAULT_WIDTH = 440
+const DEFAULT_WIDTH = 440
 // Cards run edge to edge of the panel, so there is no horizontal padding; text inside a card
 // keeps its own inset. Only the top and bottom of the stack have a little air.
 const PAD = 0

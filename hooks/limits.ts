@@ -47,11 +47,6 @@ export function toLimits(raw: readonly Reading[], stale: boolean | ReadonlySet<s
     .map(x => x.limit)
 }
 
-/** The window with the least left: what a very narrow band shows alone. */
-export function tightest(limits: readonly Limit[]): Limit | undefined {
-  return limits.reduce<Limit | undefined>((min, l) => (min === undefined || l.percentLeft < min.percentLeft ? l : min), undefined)
-}
-
 /**
  * One list of windows from three sources, freshest first: what the engine reports now, what the plan
  * usage API returned, and what the previous session saw. A window a fresher source has is not taken

@@ -4,7 +4,7 @@ import { formatDuration, formatTokens, formatUsd, miniBar, untilReset } from './
 import { severity } from './limits'
 import type { ContextUsage, Limit, SpendStatus, SpendSummary } from '../types'
 
-export type UsageSnapshot = {
+type UsageSnapshot = {
   limits: readonly Limit[]
   context: ContextUsage | null
   sessionUsd: number | null

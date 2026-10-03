@@ -67,7 +67,8 @@ function listTranscripts(root, minMtimeMs) {
       const full = path.join(dir, e.name)
       if (e.isDirectory()) walk(full)
       else if (e.name.endsWith('.jsonl')) {
-        const st = fs.statSync(full)
+        let st
+        try { st = fs.statSync(full) } catch { continue } // deleted since the listing
         if (st.mtimeMs >= minMtimeMs) found.push({ file: full, size: st.size })
       }
     }
@@ -192,7 +193,7 @@ function main() {
       const prev = state.files[key]
       const offset = prev && prev.offset <= size ? prev.offset : 0
       if (prev && offset === size) continue
-      state.files[key] = { offset: scanFile(state, file, offset) }
+      try { state.files[key] = { offset: scanFile(state, file, offset) } } catch { live.delete(key) } // unreadable now: retry next run
     }
 
     for (const f of Object.keys(state.files)) if (!live.has(f)) delete state.files[f]

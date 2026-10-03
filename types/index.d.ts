@@ -54,7 +54,6 @@ export type PlanInfo = { at: number; outcome: string; keys: string[] }
 
 /** The rate-limit windows last seen, kept across sessions so a fresh session is not blank until its first response. */
 export type StoredLimits = {
-  savedAt: number
   limits: { kind: string; percentUsed: number; resetsAt?: string }[]
 }
 
@@ -62,7 +61,7 @@ export type StoredLimits = {
 export type StoredTokens = SessionTokens & { sessionId: string }
 
 /** `unavailable`: the script could not run here (no `$.process`, no node); the last cache stays on screen. */
-export type SpendStatus = 'idle' | 'refreshing' | 'ok' | 'unavailable'
+export type SpendStatus = 'idle' | 'ok' | 'unavailable'
 
 declare module 'claude-code' {
   interface PluginState {
