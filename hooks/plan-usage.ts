@@ -13,7 +13,8 @@
 // The old top-level seven_day_<model> windows now come back null, but are read when they are not.
 import type { RawLimit, ResetGrants } from '../types'
 
-export const PLAN_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
+// The endpoint returns `cedar_ember` (the one-off rate limit resets) as null unless asked for it.
+export const PLAN_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage?cedar_ember=1'
 
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 const obj = (v: unknown): Record<string, unknown> | null => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null)

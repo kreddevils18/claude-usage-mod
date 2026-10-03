@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.1
+
+- Fix: the Usage resets row never appeared. The plan usage API returns the rate limit reset grants only when the request asks for them, so the request now does.
+
+## 0.1.0
 
 First release.
 

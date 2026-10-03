@@ -136,7 +136,7 @@ describe('spend summary', () => {
 // for a session where $.process is unavailable.
 function engine(
   on: On,
-  state: { usage: SessionUsage; process: SpendSummary | null; file: SpendSummary | null; plan?: string | { status: number; text: string }; fetches?: { n: number }; written?: string[] },
+  state: { usage: SessionUsage; process: SpendSummary | null; file: SpendSummary | null; plan?: string | { status: number; text: string }; fetches?: { n: number }; urls?: string[]; written?: string[] },
   store: Record<string, unknown> = {},
 ) {
   const clock = mock.clock(on, { now: NOW })
@@ -150,8 +150,9 @@ function engine(
   on('session.id', () => ({ value: 'test-session' }))
   // With no `plan` there is no signed-in session, so no plan fetch is made.
   on('session.authorize', () => ({ value: state.plan === undefined ? null : { handle: 'handle-1', kind: 'bearer' as const } }))
-  on('http.fetch', () => {
+  on('http.fetch', (_$, e) => {
     if (state.fetches) state.fetches.n++
+    state.urls?.push(e.url)
     const plan = typeof state.plan === 'string' ? { status: 200, text: state.plan } : (state.plan ?? { status: 404, text: '' })
     return { value: { status: plan.status, ok: plan.status >= 200 && plan.status < 300, headers: {}, text: plan.text } }
   })
@@ -731,6 +732,14 @@ describe('plan usage in the mod', () => {
     expect(text).toContain('48% left')
     expect(text).toContain('Extra')
     expect(text).toContain('75% left')
+  })
+
+  test('the request opts in to the reset grants, which the API otherwise returns as null', async ($, on) => {
+    const urls: string[] = []
+    const clock = engine(on, { usage: USAGE, process: SUMMARY, file: null, plan: PLAN, urls })
+    await start($, clock)
+    expect(urls).toHaveLength(1)
+    expect(new URL(urls[0]).searchParams.get('cedar_ember')).toBe('1')
   })
 
   test('Fable and Extra stay on a narrow terminal band, on two rows', async ($, on) => {
