@@ -1,0 +1,37 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  script:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Aggregation script tests
+        run: node --test tests/aggregate-usage.test.mjs
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: JSON files parse
+        run: |
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json config/pricing.json; do
+            jq empty "$f" && echo "ok $f"
+          done
+      - name: Plugin names are allowed
+        run: |
+          # Claude Code reserves names that start with "claude-".
+          jq -e '.name | startswith("claude-") | not' .claude-plugin/plugin.json
+          jq -e '[.plugins[].name | startswith("claude-")] | any | not' .claude-plugin/marketplace.json
+      - name: Marketplace lists the plugin at the root
+        run: jq -e '.plugins[0].source == "./"' .claude-plugin/marketplace.json

@@ -1,0 +1,16 @@
+name: Feature request
+description: Something you would like the mod to show or do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: want
+    attributes:
+      label: What would you like, and what for?
+      description: Say what you want to see or do. Remember the band is for what you glance at; anything longer belongs in the pane.
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Where would the number come from?
+      description: Claude Code's own data, the plan usage API, your transcripts? A new network request needs an issue and a reason first.

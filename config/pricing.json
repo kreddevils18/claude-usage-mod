@@ -1,0 +1,13 @@
+{
+  "_note": "USD per million tokens. First matching rule wins; `match` is a regex on the model id. cacheWrite5mX / cacheWrite1hX multiply `input`. Edit when prices change.",
+  "models": [
+    { "match": "fable-5", "input": 10, "output": 50, "cacheRead": 0.25 },
+    { "match": "mythos-5", "input": 10, "output": 50, "cacheRead": 0.25 },
+    { "match": "opus-5-5", "input": 4, "output": 20, "cacheRead": 0.2 },
+    { "match": "opus-(5|4-[5-9])", "input": 5, "output": 25, "cacheRead": 0.5 },
+    { "match": "sonnet-5", "input": 2, "output": 10, "cacheRead": 0.2 },
+    { "match": "sonnet-4", "input": 3, "output": 15, "cacheRead": 0.3 },
+    { "match": "haiku-4-5", "input": 1, "output": 5, "cacheRead": 0.1 }
+  ],
+  "fallback": { "input": 5, "output": 25, "cacheRead": 0.5 }
+}
